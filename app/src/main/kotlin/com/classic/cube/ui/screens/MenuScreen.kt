@@ -4,6 +4,12 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,7 +26,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -54,6 +59,25 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
 
+/** The puzzle families the menu switches between, each remembering its own pick. */
+private enum class Family(val label: String, val puzzles: List<Puzzle>, val first: Puzzle) {
+    CLASSIC("Classic", Puzzle.CLASSIC, Puzzle.standard(3)),
+    MEGAMINX("Megaminx", Puzzle.MINX_FAMILY, Puzzle.MINX_FAMILY.first { it.n == 3 }),
+    PYRAMINX("Pyraminx", Puzzle.PYRAMINX_FAMILY, Puzzle.PYRAMINX_FAMILY.first()),
+    UNIQUE("Unique", Puzzle.UNIQUE, Puzzle.UNIQUE.first());
+
+    /** The menu heading for [p]: the family and size, or a unique puzzle's own name. */
+    fun title(p: Puzzle) = when (this) {
+        CLASSIC -> "Classic ${p.n}×${p.n}"
+        MEGAMINX, PYRAMINX -> "$label ${p.n}"
+        UNIQUE -> p.name
+    }
+
+    companion object {
+        fun of(p: Puzzle) = entries.first { p in it.puzzles }
+    }
+}
+
 @Composable
 fun MenuScreen(
     vm: GameViewModel,
@@ -64,87 +88,79 @@ fun MenuScreen(
     val stats by vm.stats.collectAsStateWithLifecycle()
     val puzzle by vm.menuPuzzle.collectAsStateWithLifecycle()
     var helpOpen by remember { mutableStateOf(false) }
-    val keys = LocalKeys.current
+    var statsOpen by rememberSaveable { mutableStateOf(false) }
+    val family = Family.of(puzzle)
+    // What each family showed last, so switching tabs and back keeps the size.
+    val picks = remember { mutableStateMapOf<Family, Puzzle>() }
+    picks[family] = puzzle
+    val resumable = saved?.takeIf { it.state.puzzle == puzzle }
+    val colors = MaterialTheme.colorScheme
 
-    Column(
-        Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = { helpOpen = true }) {
-                Icon(AppIcons.Help, null, Modifier.size(20.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("How to Play")
-            }
-        }
-        Spacer(Modifier.weight(1f))
-        if (puzzle.isMinx) MinxPicture(puzzle, Modifier.size(140.dp)) else IsoCube(puzzle, Modifier.size(140.dp))
-        Spacer(Modifier.height(16.dp))
-        Text("Cube 3D", fontSize = 44.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(20.dp))
-
-        SectionLabel("Classic")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            for (p in Puzzle.CLASSIC) {
-                Chip("${p.n}", p == puzzle, Modifier.size(40.dp)) { vm.setMenuPuzzle(p) }
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-        SectionLabel("Megaminx")
-        // Layers per face, like the classic sizes; the full name shows once one is picked.
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            for (p in Puzzle.MINX_FAMILY) {
-                Chip("${p.n}", p == puzzle, Modifier.size(40.dp)) { vm.setMenuPuzzle(p) }
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-        SectionLabel("Pyraminx")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            for (p in Puzzle.PYRAMINX_FAMILY) {
-                Chip("${p.n}", p == puzzle, Modifier.size(40.dp)) { vm.setMenuPuzzle(p) }
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-        SectionLabel("Unique")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            for (p in Puzzle.UNIQUE) {
-                Chip(p.name, p == puzzle, Modifier.height(40.dp).widthIn(min = 88.dp)) { vm.setMenuPuzzle(p) }
-            }
-        }
-        Spacer(Modifier.height(16.dp))
-        StatsRow(stats[puzzle.id] ?: SizeStats())
-        Spacer(Modifier.weight(1f))
-
-        val wide = Modifier.widthIn(max = 420.dp).fillMaxWidth()
-        saved?.let { s ->
-            Button(onClick = onResume, modifier = wide.height(64.dp), shape = RoundedCornerShape(14.dp)) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Continue", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Text(
-                        "${s.state.puzzle.label} · ${formatTime(s.elapsedMillis)} · ${s.moves} move${if (s.moves == 1) "" else "s"}",
-                        style = MaterialTheme.typography.labelMedium,
-                    )
+    Box(Modifier.fillMaxSize().safeDrawingPadding(), contentAlignment = Alignment.TopCenter) {
+        Column(
+            Modifier.widthIn(max = 480.dp).fillMaxSize().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Cube 3D", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colors.onSurfaceVariant)
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = { helpOpen = true }, modifier = Modifier.offset(x = 10.dp)) {
+                    Icon(AppIcons.Help, "How to play", tint = colors.primary)
                 }
             }
-            Spacer(Modifier.height(12.dp))
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                val art = Modifier.size(264.dp)
+                if (puzzle.isMinx) MinxPicture(puzzle, art) else IsoCube(puzzle, art)
+            }
+            Text(
+                family.title(puzzle),
+                fontSize = 32.sp,
+                lineHeight = 40.sp,
+                fontWeight = FontWeight.Bold,
+                color = colors.onSurface,
+                textAlign = TextAlign.Center,
+            )
+            StatsToggle(stats[puzzle.id] ?: SizeStats(), statsOpen) { statsOpen = !statsOpen }
+
+            FamilyTabs(family, Modifier.padding(top = 12.dp)) { f -> vm.setMenuPuzzle(picks[f] ?: f.first) }
+            Row(
+                Modifier.padding(top = 16.dp).height(48.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                for (p in family.puzzles) {
+                    val label = if (family == Family.UNIQUE) p.name else "${p.n}"
+                    val width = if (family == Family.UNIQUE) 116.dp else 48.dp
+                    SizeChip(label, p == puzzle, Modifier.width(width)) { vm.setMenuPuzzle(p) }
+                }
+            }
+
+            Button(
+                onClick = { if (resumable != null) onResume() else onPlay(puzzle, true) },
+                modifier = Modifier.padding(top = 24.dp).fillMaxWidth().height(68.dp),
+                shape = RoundedCornerShape(18.dp),
+                contentPadding = PaddingValues(horizontal = 20.dp),
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(if (resumable != null) "Continue" else "Play", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    if (resumable != null) {
+                        Text(
+                            "${formatTime(resumable.elapsedMillis)} · ${resumable.moves} move${if (resumable.moves == 1) "" else "s"}",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
+            }
+            Box(Modifier.padding(top = 4.dp).height(48.dp), contentAlignment = Alignment.Center) {
+                if (resumable != null) {
+                    TextButton(onClick = { onPlay(puzzle, true) }, modifier = Modifier.height(48.dp)) {
+                        Icon(AppIcons.Shuffle, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("New scramble", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                    }
+                }
+            }
         }
-        val secondary = ButtonDefaults.buttonColors(containerColor = keys.key, contentColor = MaterialTheme.colorScheme.primary)
-        Button(
-            onClick = { onPlay(puzzle, true) },
-            modifier = wide.height(60.dp),
-            shape = RoundedCornerShape(14.dp),
-            colors = if (saved == null) ButtonDefaults.buttonColors() else secondary,
-            elevation = ButtonDefaults.buttonElevation(defaultElevation = 1.dp),
-        ) {
-            Icon(AppIcons.Shuffle, null)
-            Spacer(Modifier.width(8.dp))
-            Text("Scramble ${puzzle.label}", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        }
-        Spacer(Modifier.height(12.dp))
-        TextButton(onClick = { onPlay(puzzle, false) }, modifier = wide.height(48.dp)) {
-            Text("Free play", fontSize = 16.sp)
-        }
-        Spacer(Modifier.height(16.dp))
     }
 
     if (helpOpen) {
@@ -166,52 +182,77 @@ fun MenuScreen(
     }
 }
 
+/** One line of stats: best time and solves, or every stat once tapped open. */
 @Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text.uppercase(),
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(bottom = 6.dp),
-    )
+private fun StatsToggle(s: SizeStats, open: Boolean, onToggle: () -> Unit) {
+    // No-break spaces inside each stat, so a long line only wraps between stats.
+    val best = "Best\u00A0${s.bestMillis?.let { formatTime(it, tenths = true) } ?: "–"}"
+    val solves = "${s.solves}\u00A0solve${if (s.solves == 1) "" else "s"}"
+    val text = if (open) {
+        "$best · Average\u00A0${s.averageMillis?.let { formatTime(it) } ?: "–"} · Fewest\u00A0${s.bestMoves ?: "–"} · $solves"
+    } else {
+        "$best · $solves"
+    }
+    Row(
+        Modifier.heightIn(min = 44.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClickLabel = if (open) "Show fewer stats" else "Show all stats", onClick = onToggle)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        // Every stat can run past one line on a narrow phone; wrap it centered.
+        Text(text, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        if (!open) Icon(AppIcons.ExpandMore, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** A segmented control for the puzzle families. */
+@Composable
+private fun FamilyTabs(selected: Family, modifier: Modifier, onPick: (Family) -> Unit) {
+    val keys = LocalKeys.current
+    Row(
+        modifier.fillMaxWidth().background(keys.track, RoundedCornerShape(14.dp)).padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        for (f in Family.entries) {
+            val on = f == selected
+            Box(
+                Modifier.weight(1f).height(44.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (on) keys.trackSelected else Color.Transparent)
+                    .clickable(role = Role.Tab) { onPick(f) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    f.label,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
 }
 
 @Composable
-private fun Chip(text: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun SizeChip(text: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val keys = LocalKeys.current
     Box(
-        modifier.clip(CircleShape)
+        modifier.height(48.dp).clip(CircleShape)
             .background(if (selected) MaterialTheme.colorScheme.primary else keys.key)
-            .clickable(role = Role.RadioButton, onClick = onClick)
-            .padding(horizontal = 14.dp),
+            .clickable(role = Role.RadioButton, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text,
             color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-            fontWeight = FontWeight.Bold,
-            fontSize = 17.sp,
+            fontWeight = FontWeight.Medium,
+            fontSize = 18.sp,
             textAlign = TextAlign.Center,
             maxLines = 1,
         )
-    }
-}
-
-@Composable
-private fun StatsRow(s: SizeStats) {
-    Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-        Stat("Best", s.bestMillis?.let { formatTime(it, tenths = true) } ?: "–")
-        Stat("Average", s.averageMillis?.let { formatTime(it) } ?: "–")
-        Stat("Fewest", s.bestMoves?.toString() ?: "–")
-        Stat("Solves", s.solves.toString())
-    }
-}
-
-@Composable
-private fun Stat(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

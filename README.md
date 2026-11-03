@@ -47,7 +47,10 @@ back onto the surface wherever they would sink into it. They slide over the surf
 overlapping their neighbours, rather than clipping through.
 
 Dragging picks whichever face axis moves the touched sticker most nearly along the finger. Turning a
-face about its own axis works like a dial: the angle swept around its center.
+face about its own axis works like a dial: the angle swept around its center. Next to an edge, spinning
+the face and turning the neighbour's layer move the touched sticker the same way, so a straight swipe
+turns the neighbour, as on a cube; the face spins only when that fits the drag clearly better (an arc
+round its center or a corner), when nothing else fits, or on its center sticker.
 
 ## Pyraminx family
 

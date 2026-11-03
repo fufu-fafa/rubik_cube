@@ -171,7 +171,8 @@ fun MenuScreen(
             text = {
                 Text(
                     "Make every face one color. A mirror cube is one color all over: bring it back to a cube shape.\n\n" +
-                        "• A megaminx turns in fifths and a pyraminx in thirds. Swipe along the way you want the stickers to move; the closest turn wins.\n" +
+                        "• A megaminx turns in fifths and a pyraminx in thirds. Swipe along the way you want the stickers to move; the closest turn wins. " +
+                            "A straight swipe along a row turns the neighbouring face; to spin a megaminx face itself, drag in an arc around its center.\n" +
                         "• Swipe across the cube to turn a layer. Let go and it snaps to the nearest quarter turn.\n" +
                         "• Drag outside the cube, or with two fingers, to look around it. Twist two fingers to spin it in place.\n" +
                         "• The clock starts with your first turn after the scramble.\n" +

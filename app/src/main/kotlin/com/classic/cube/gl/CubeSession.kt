@@ -471,6 +471,9 @@ class CubeSession(state: PuzzleState) {
      */
     private fun startDrag(dx: Float, dy: Float) {
         val dragLen = hypot(dx, dy)
+        // The touched face's own axis (minx only) is scored apart from the rest: see below.
+        val own = options.firstOrNull { it.axis == hitMinxFace }
+        var ownScore = -1f
         var bestScore = -1f
         var choice: Option? = null
         var screenVel = FloatArray(2)
@@ -492,28 +495,32 @@ class CubeSession(state: PuzzleState) {
             val len = hypot(sx, sy)
             if (len < 1e-3f) continue
             val score = abs(dx * sx + dy * sy) / (len * dragLen)
-            if (score > bestScore) {
+            if (o === own) {
+                ownScore = score
+            } else if (score > bestScore) {
                 bestScore = score
                 choice = o
                 screenVel = floatArrayOf(sx, sy)
             }
         }
-        var o = choice ?: run { mode = Mode.ORBIT; return }
         // Spinning a minx face: follow the angle swept around its center, whichever way the drag goes.
-        val own = options.firstOrNull { it.axis == hitMinxFace }
-        dial = own != null && (o === own || bestScore < 0.5f)
+        // Along an edge, spinning the face and turning the neighbour's layer move the touched sticker
+        // the same way, so a straight swipe turns the neighbour, as on a cube. The face itself spins
+        // only when that clearly fits better (a sweep round a corner), when nothing else fits the
+        // drag, or when nothing else holds the sticker (its center).
+        dial = own != null && (choice == null || bestScore < 0.5f || ownScore > bestScore + DIAL_MARGIN)
         if (dial && own != null) {
-            o = own
             val n = state.puzzle.minx.normals[own.axis]
             val c = project(FloatArray(3) { n[it].toFloat() })
             c.copyInto(dialCenter)
             // Count the sweep from where the finger went down.
             dialLast = atan2(downY - c[1], downX - c[0])
             dialAngle = 0f
-            turn = Turn(o.axis, o.layer, o.vec)
+            turn = Turn(own.axis, own.layer, own.vec)
             mode = Mode.TURN
             return
         }
+        val o = choice ?: run { mode = Mode.ORBIT; return }
         val len = hypot(screenVel[0], screenVel[1])
         dragAxis2d = floatArrayOf(screenVel[0] / len, screenVel[1] / len)
         // Keep the sticker under the finger, but don't let turns near the axis get twitchy. A third
@@ -549,6 +556,8 @@ class CubeSession(state: PuzzleState) {
         const val DISTANCE = 6.2f
         /** Radians per second that count as a flick. */
         const val FLICK = 2.5f
+        /** How much better (as a cosine) spinning the touched minx face must fit a drag to win. */
+        const val DIAL_MARGIN = 0.15f
     }
 }
 

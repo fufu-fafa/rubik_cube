@@ -4,7 +4,7 @@ import kotlin.random.Random
 
 /**
  * A kind of puzzle. Cubes all turn like an n×n×n cube and differ in how pieces look and what counts
- * as solved; minxes are dodecahedra (see [MinxGeometry]). Add new cube variants to [UNIQUE].
+ * as solved; minxes are dodecahedra or tetrahedra (see [MinxGeometry]). Add new cube variants to [UNIQUE].
  */
 class Puzzle private constructor(
     /** Stable key for saves and stats. Classic cubes use their size ("3") to keep old stats. */
@@ -20,13 +20,15 @@ class Puzzle private constructor(
     /** Cubies along x, y, z; [n] on every axis except for the tower. */
     val dims: IntArray = intArrayOf(n, n, n),
     private val title: String? = null,
+    /** What a [Kind.MINX] is cut from. */
+    val solid: Solid = Solid.DODECAHEDRON,
 ) {
     enum class Kind {
         /** Colored stickers; solved when every face shows one color. */
         STANDARD,
         /** One color, uneven layers; solved when the pieces make a cuboid again. */
         MIRROR,
-        /** A dodecahedron turned in fifths; [n] is the number of layers per face. */
+        /** A dodecahedron turned in fifths, or a tetrahedron in thirds; [n] is the number of layers per face. */
         MINX,
         /** A cuboid whose layers turn in quarters even when that bends it out of shape. */
         SHAPESHIFT,
@@ -41,9 +43,9 @@ class Puzzle private constructor(
     val label get() = title ?: if (isClassic) "$n×$n" else name
 
     /** Steps in a full turn of a layer. */
-    val turnOrder get() = if (isMinx) 5 else 4
+    val turnOrder get() = if (isMinx) solid.order else 4
 
-    val minx: MinxGeometry get() = MinxGeometry.of(n)
+    val minx: MinxGeometry get() = MinxGeometry.of(n, solid)
 
     fun solved(): PuzzleState = when (kind) {
         Kind.MINX -> Minx.solved(this)
@@ -58,7 +60,7 @@ class Puzzle private constructor(
     }
 
     fun scramble(random: Random = Random.Default): List<Move> = when (kind) {
-        Kind.MINX -> Minx.scramble(n, random)
+        Kind.MINX -> Minx.scramble(this, random)
         Kind.SHAPESHIFT -> ShapeShift.scramble(this, random)
         else -> Cube.scramble(n, random)
     }
@@ -75,7 +77,8 @@ class Puzzle private constructor(
 
     /** Half the largest width of the solved shape, plus room for pieces that stick out when scrambled. */
     val viewRadius: Float get() {
-        if (isMinx) return 0.82f
+        // A tetrahedron's corners reach three times as far as its faces.
+        if (isMinx) return if (solid == Solid.TETRAHEDRON) 1.9f else 0.82f
         // Out of shape it can reach the edge of a cube as wide as its longest side.
         if (kind == Kind.SHAPESHIFT) return dims.max() * 1.05f
         val half = (0..2).maxOf { (hi(it, dims[it] - 1) - lo(it, 0)) / 2 }
@@ -130,12 +133,20 @@ class Puzzle private constructor(
             Puzzle("teraminx", "Teraminx", 7, Kind.MINX),
         )
 
+        val PYRAMINX_FAMILY: List<Puzzle> = listOf(
+            Puzzle("pyraminx", "Pyraminx", 3, Kind.MINX, solid = Solid.TETRAHEDRON),
+            Puzzle("masterpyraminx", "Master Pyraminx", 4, Kind.MINX, solid = Solid.TETRAHEDRON),
+            Puzzle("professorpyraminx", "Professor Pyraminx", 5, Kind.MINX, solid = Solid.TETRAHEDRON),
+            Puzzle("royalpyraminx", "Royal Pyraminx", 6, Kind.MINX, solid = Solid.TETRAHEDRON),
+            Puzzle("emperorpyraminx", "Emperor Pyraminx", 7, Kind.MINX, solid = Solid.TETRAHEDRON),
+        )
+
         /** Two by two across, four layers tall. Turning a tall side a quarter turn bends it out of shape. */
         val TOWER = Puzzle("tower224", "Tower", 4, Kind.SHAPESHIFT, dims = intArrayOf(2, 4, 2), title = "Tower 2×2×4")
 
         val CLASSIC: List<Puzzle> = classic.values.toList()
         val UNIQUE: List<Puzzle> = listOf(MIRROR, TOWER)
-        val ALL = CLASSIC + MINX_FAMILY + UNIQUE
+        val ALL = CLASSIC + MINX_FAMILY + PYRAMINX_FAMILY + UNIQUE
 
         fun byId(id: String): Puzzle? = ALL.firstOrNull { it.id == id }
     }

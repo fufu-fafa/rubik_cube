@@ -1,7 +1,8 @@
 # Cube 3D
 
 A 3D twisty-puzzle game for Android, drawn with OpenGL ES 2.0: classic cubes from 2×2 up to 7×7,
-the megaminx family (Kilominx, Megaminx, Master Kilominx, Gigaminx, Elite Kilominx, Teraminx), and unique cubes (the
+the megaminx family (Kilominx, Megaminx, Master Kilominx, Gigaminx, Elite Kilominx, Teraminx), the pyraminx family
+(Pyraminx, Master, Professor, Royal and Emperor Pyraminx), and unique cubes (the
 3×3 mirror cube and the 2×2×4 tower). Swipe a face to
 turn a layer, drag outside the cube or use two fingers to look around (twist them to spin it in place), and race the clock from a
 random scramble. Kotlin + Jetpack Compose, laid out like the sudoku and minesweeper projects next door.
@@ -47,6 +48,13 @@ overlapping their neighbours, rather than clipping through.
 
 Dragging picks whichever face axis moves the touched sticker most nearly along the finger. Turning a
 face about its own axis works like a dial: the angle swept around its center.
+
+## Pyraminx family
+
+A pyraminx is the same engine on a tetrahedron (`Solid.TETRAHEDRON`): four axes turned in thirds, with
+cuts every 1/n of the way from a face to the opposite corner, so each face is a triangular grid of
+n² stickers. The layer farthest from a face is its tip, reaching the corner. Touching a face offers the
+other three axes only; turning a whole face is done by swiping along a bottom row of a neighbouring face.
 
 ## Touch
 

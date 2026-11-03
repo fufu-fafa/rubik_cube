@@ -13,8 +13,14 @@ class MinxSticker(val face: Int, val polygon: List<DoubleArray>) {
     val centroid = DoubleArray(3) { a -> polygon.sumOf { it[a] } / polygon.size }
 }
 
+/** The solid a minx is cut from, and how many steps make a full turn of it. */
+enum class Solid(val order: Int) {
+    DODECAHEDRON(5),
+    TETRAHEDRON(3),
+}
+
 /**
- * A face-turning dodecahedron with [n] layers per face: Kilominx (2), Megaminx (3), Master Kilominx
+ * A face-turning polyhedron. The [Solid.DODECAHEDRON] has [n] layers per face: Kilominx (2), Megaminx (3), Master Kilominx
  * (4), Gigaminx (5), Elite Kilominx (6), Teraminx (7). The solid has inradius 1, face 0 on top.
  *
  * Every face has the same cut planes parallel to it, at [depths] from the center. A turn of face f,
@@ -26,27 +32,41 @@ class MinxSticker(val face: Int, val polygon: List<DoubleArray>) {
  * middle edges: they turn like the next odd size, but each face is drawn as five kites (one per
  * corner) split into a k×k grid, so the face stays fully covered. Kite edges don't follow the cut
  * planes, so [kites] tells the renderer it can't split the solid along a turning slab.
+ *
+ * The [Solid.TETRAHEDRON] is the pyraminx family: [n] layers per axis, cut every 1/n of the way
+ * from a face (at depth 1) to the opposite corner (at -3), so each face is a triangular grid. With
+ * no opposite face, the last layer reaches all the way to the corner: it is the tip.
  */
-class MinxGeometry private constructor(val n: Int) {
+class MinxGeometry private constructor(val solid: Solid, val n: Int) {
     val normals: List<DoubleArray>
     val faces: List<List<DoubleArray>>
     /** Cut depths, ascending. */
     val depths: DoubleArray
     val stickers: List<MinxSticker>
-    /** Even sizes: stickers are corner kites rather than cut-plane polygons. */
-    val kites get() = n % 2 == 0
+    /** Even dodecahedra: stickers are corner kites rather than cut-plane polygons. */
+    val kites: Boolean
+    /** Length of an edge of the solid, for sizing gaps between stickers. */
+    val edge: Double
     private val layerTable: Array<IntArray>
     private val perms = HashMap<Move, IntArray>()
 
     val layers get() = depths.size
 
     init {
-        normals = buildNormals()
+        normals = if (solid == Solid.TETRAHEDRON) tetrahedronNormals() else dodecahedronNormals()
         faces = normals.indices.map { facePolygon(it) }
-        val config = CONFIG.getValue(n)
-        depths = config.cuts.map { 1 - it * (1 - 1 / sqrt(5.0)) }.sorted().toDoubleArray()
-        stickers = if (config.kite == null) cutStickers() else kiteStickers(config.kite)
-        layerTable = Array(stickers.size) { i -> IntArray(12) { f -> layerOf(stickers[i].centroid, f) } }
+        edge = sqrt(dist2(faces[0][0], faces[0][1]))
+        if (solid == Solid.TETRAHEDRON) {
+            depths = (DoubleArray(n - 1) { 1 - 4.0 * (it + 1) / n } + TIP).sorted().toDoubleArray()
+            kites = false
+            stickers = cutStickers()
+        } else {
+            val config = CONFIG.getValue(n)
+            depths = config.cuts.map { 1 - it * (1 - 1 / sqrt(5.0)) }.sorted().toDoubleArray()
+            kites = config.kite != null
+            stickers = if (config.kite == null) cutStickers() else kiteStickers(config.kite)
+        }
+        layerTable = Array(stickers.size) { i -> IntArray(normals.size) { f -> layerOf(stickers[i].centroid, f) } }
     }
 
     /** The layer of face [face] that holds sticker [sticker], or -1 if none. */
@@ -77,7 +97,7 @@ class MinxGeometry private constructor(val n: Int) {
     /** perm[i] is where the sticker in slot i ends up. */
     @Synchronized
     fun permutation(m: Move): IntArray = perms.getOrPut(m) {
-        val angle = m.turns * 2 * PI / 5
+        val angle = m.turns * 2 * PI / solid.order
         val axis = normals[m.axis]
         IntArray(stickers.size) { i ->
             if (layerTable[i][m.axis] != m.layer) return@IntArray i
@@ -124,8 +144,23 @@ class MinxGeometry private constructor(val n: Int) {
         return out
     }
 
+    /**
+     * Three faces tilted up around a corner on top, face 3 down. Turned so the edge between faces 0
+     * and 1 faces the default camera, which looks from 38° round.
+     */
+    private fun tetrahedronNormals(): List<DoubleArray> {
+        val side = sqrt(8.0) / 3
+        val list = ArrayList<DoubleArray>()
+        for (k in 0 until 3) {
+            val az = k * 2 * PI / 3 - Math.toRadians(22.0)
+            list += doubleArrayOf(side * sin(az), 1.0 / 3, side * cos(az))
+        }
+        list += doubleArrayOf(0.0, -1.0, 0.0)
+        return list
+    }
+
     /** Face 0 up, five faces around it tilted up, five tilted down, face 11 down. */
-    private fun buildNormals(): List<DoubleArray> {
+    private fun dodecahedronNormals(): List<DoubleArray> {
         val el = Math.asin(1 / sqrt(5.0))
         val list = ArrayList<DoubleArray>()
         list += doubleArrayOf(0.0, 1.0, 0.0)
@@ -141,18 +176,24 @@ class MinxGeometry private constructor(val n: Int) {
         return list
     }
 
-    /** The five corners of face [i], counterclockwise seen from outside. */
+    /** The corners of face [i], counterclockwise seen from outside. */
     private fun facePolygon(i: Int): List<DoubleArray> {
         val n = normals[i]
-        val nbrs = normals.indices.filter { it != i && abs(dot(normals[it], n) - 1 / sqrt(5.0)) < 1e-6 }
+        // Neighbours lean closest to this face.
+        val near = normals.indices.filter { it != i }.maxOf { dot(normals[it], n) }
+        val nbrs = normals.indices.filter { it != i && abs(dot(normals[it], n) - near) < 1e-6 }
         val u = normalize(sub(normals[nbrs[0]], scale(n, dot(normals[nbrs[0]], n))))
         val w = cross(n, u)
         val sorted = nbrs.sortedBy { atan2(dot(normals[it], w), dot(normals[it], u)) }
-        return (0 until 5).map { k -> solve(n, normals[sorted[k]], normals[sorted[(k + 1) % 5]]) }
+        return sorted.indices.map { k -> solve(n, normals[sorted[k]], normals[sorted[(k + 1) % sorted.size]]) }
     }
 
     companion object {
         val SIZES = listOf(2, 3, 4, 5, 6, 7)
+        val PYRAMINX_SIZES = listOf(3, 4, 5, 6, 7)
+
+        /** Below every point of the tetrahedron, so the tip layer reaches the corner. */
+        private const val TIP = -10.0
 
         private class Config(val cuts: List<Double>, val kite: DoubleArray? = null)
 
@@ -169,10 +210,11 @@ class MinxGeometry private constructor(val n: Int) {
             7 to Config(listOf(0.52, 0.34, 0.16)),
         )
 
-        private val cache = HashMap<Int, MinxGeometry>()
+        private val cache = HashMap<Pair<Solid, Int>, MinxGeometry>()
 
         @Synchronized
-        fun of(n: Int): MinxGeometry = cache.getOrPut(n) { MinxGeometry(n) }
+        fun of(n: Int, solid: Solid = Solid.DODECAHEDRON): MinxGeometry =
+            cache.getOrPut(solid to n) { MinxGeometry(solid, n) }
 
         fun dot(a: DoubleArray, b: DoubleArray) = a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
         fun sub(a: DoubleArray, b: DoubleArray) = DoubleArray(3) { a[it] - b[it] }
@@ -235,9 +277,9 @@ class MinxGeometry private constructor(val n: Int) {
 
 /** Sticker positions of a minx, like [Cube]: homes[i] is the slot the sticker now in slot i started in. */
 class Minx private constructor(override val puzzle: Puzzle, private var homes: IntArray) : PuzzleState {
-    val geometry = MinxGeometry.of(puzzle.n)
+    val geometry = puzzle.minx
 
-    /** The face color of the sticker in [slot], 0..11. */
+    /** The face color of the sticker in [slot], one per face of the solid. */
     fun color(slot: Int): Int = geometry.stickers[homes[slot]].face
 
     override fun apply(m: Move) {
@@ -249,7 +291,7 @@ class Minx private constructor(override val puzzle: Puzzle, private var homes: I
 
     /** Every face shows one color. */
     override fun isSolved(): Boolean {
-        val first = IntArray(12) { -1 }
+        val first = IntArray(geometry.normals.size) { -1 }
         for (i in homes.indices) {
             val f = geometry.stickers[i].face
             val c = color(i)
@@ -272,10 +314,10 @@ class Minx private constructor(override val puzzle: Puzzle, private var homes: I
     override fun hashCode() = 31 * puzzle.hashCode() + homes.contentHashCode()
 
     companion object {
-        fun solved(puzzle: Puzzle) = Minx(puzzle, IntArray(MinxGeometry.of(puzzle.n).stickers.size) { it })
+        fun solved(puzzle: Puzzle) = Minx(puzzle, IntArray(puzzle.minx.stickers.size) { it })
 
         fun decode(puzzle: Puzzle, s: String): Minx? {
-            val size = MinxGeometry.of(puzzle.n).stickers.size
+            val size = puzzle.minx.stickers.size
             if (s.length != 2 * size) return null
             val homes = IntArray(size) {
                 val hi = s[2 * it].digitToIntOrNull(36) ?: return null
@@ -286,22 +328,24 @@ class Minx private constructor(override val puzzle: Puzzle, private var homes: I
             return Minx(puzzle, homes)
         }
 
-        fun scrambleLength(n: Int) = when (n) {
-            2 -> 30
-            3 -> 70
+        fun scrambleLength(n: Int, solid: Solid = Solid.DODECAHEDRON) = when {
+            solid == Solid.TETRAHEDRON -> 15 * n - 20
+            n == 2 -> 30
+            n == 3 -> 70
             else -> 30 * n
         }
 
         /** Random turns of random layers, never the same face twice in a row. */
-        fun scramble(n: Int, random: Random = Random.Default, length: Int = scrambleLength(n)): List<Move> {
-            val layers = MinxGeometry.of(n).layers
+        fun scramble(puzzle: Puzzle, random: Random = Random.Default, length: Int = scrambleLength(puzzle.n, puzzle.solid)): List<Move> {
+            val g = puzzle.minx
+            val turns = if (g.solid.order == 3) listOf(1, -1) else listOf(1, -1, 2, -2)
             val moves = ArrayList<Move>(length)
             var last = -1
             while (moves.size < length) {
-                val face = random.nextInt(12)
+                val face = random.nextInt(g.normals.size)
                 if (face == last) continue
                 last = face
-                moves += Move(face, random.nextInt(layers), listOf(1, -1, 2, -2).random(random))
+                moves += Move(face, random.nextInt(g.layers), turns.random(random))
             }
             return moves
         }

@@ -7,6 +7,7 @@ import com.classic.cube.core.MinxGeometry
 import com.classic.cube.core.Move
 import com.classic.cube.core.PuzzleState
 import com.classic.cube.core.ShapeShift
+import com.classic.cube.core.Solid
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan
@@ -208,7 +209,7 @@ class CubeSession(state: PuzzleState) {
         completeTurn(t)
     }
 
-    /** Radians in one step of a turn: a quarter on cubes, a fifth on minxes. */
+    /** Radians in one step of a turn: a quarter on cubes, a fifth on megaminxes, a third on pyraminxes. */
     private val step get() = (2 * PI / state.puzzle.turnOrder).toFloat()
 
     /** The unit vector a move's [axis] turns about. */
@@ -411,8 +412,9 @@ class CubeSession(state: PuzzleState) {
     }
 
     /**
-     * Ray against the dodecahedron (inradius 1), then the sticker under the hit. It can turn about
-     * any face axis that has it in a layer, its own face included.
+     * Ray against the solid (inradius 1), then the sticker under the hit. It can turn about any face
+     * axis that has it in a layer, its own face included on a dodecahedron. A pyraminx face's own
+     * axis only turns the whole face, which swipes along the other faces' rows already reach.
      */
     private fun pickMinx(minx: Minx, near: FloatArray, dir: FloatArray): List<Option> {
         val g = minx.geometry
@@ -445,7 +447,7 @@ class CubeSession(state: PuzzleState) {
         } ?: return emptyList()
         return g.normals.indices.mapNotNull { f ->
             val layer = g.layer(sticker, f)
-            if (layer < 0) null else Option(f, layer, axisVector(f))
+            if (layer < 0 || (f == face && g.solid == Solid.TETRAHEDRON)) null else Option(f, layer, axisVector(f))
         }
     }
 
@@ -514,8 +516,10 @@ class CubeSession(state: PuzzleState) {
         }
         val len = hypot(screenVel[0], screenVel[1])
         dragAxis2d = floatArrayOf(screenVel[0] / len, screenVel[1] / len)
-        // Keep the sticker under the finger, but don't let turns near the axis get twitchy.
-        pixelsPerRadian = maxOf(len * 1.1f, minOf(width, height) * 0.22f)
+        // Keep the sticker under the finger, but don't let turns near the axis get twitchy. A third
+        // of a turn is a long way, so a pyraminx snaps after about the drag of a megaminx fifth.
+        val floor = minOf(width, height) * 0.22f * if (state.puzzle.turnOrder == 3) 0.6f else 1f
+        pixelsPerRadian = maxOf(len * 1.1f, floor)
         turn = Turn(o.axis, o.layer, o.vec)
         mode = Mode.TURN
     }

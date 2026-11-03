@@ -10,6 +10,7 @@ import com.classic.cube.core.Minx
 import com.classic.cube.core.MinxGeometry
 import com.classic.cube.core.Puzzle
 import com.classic.cube.core.ShapeShift
+import com.classic.cube.core.Solid
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -46,6 +47,17 @@ val MinxColors: Array<FloatArray> = arrayOf(
     rgb(0xFF6A13), // orange
     rgb(0x8A8D93), // gray
 )
+
+/** Pyraminx face colors by face index: the three sides, then the bottom. */
+val PyraminxColors: Array<FloatArray> = arrayOf(
+    rgb(0x00A651), // green
+    rgb(0xC8102E), // red
+    rgb(0x0057B8), // blue
+    rgb(0xFFD200), // yellow
+)
+
+/** Face colors for a minx of either solid. */
+fun minxColors(g: MinxGeometry): Array<FloatArray> = if (g.solid == Solid.TETRAHEDRON) PyraminxColors else MinxColors
 
 /** The plate finish of mirror pieces. */
 val MirrorColor: FloatArray = rgb(0xD9DCE3)
@@ -90,7 +102,7 @@ class CubeRenderer(private val session: CubeSession) : GLSurfaceView.Renderer {
     private val faceAxes = Array(6) { IntArray(2) }
     /** Rounded plates for mirror pieces, keyed by size in hundredths. */
     private val plates = HashMap<Long, Mesh>()
-    private val minxMeshes = HashMap<Int, MinxMeshes>()
+    private val minxMeshes = HashMap<MinxGeometry, MinxMeshes>()
     private val slabs = HashMap<Long, Pair<Double, Double>>()
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -298,7 +310,8 @@ class CubeRenderer(private val session: CubeSession) : GLSurfaceView.Renderer {
      */
     private fun drawMinx(minx: Minx) {
         val g = minx.geometry
-        val meshes = minxMeshes.getOrPut(g.n) { MinxMeshes.of(g) }
+        val meshes = minxMeshes.getOrPut(g) { MinxMeshes.of(g) }
+        val colors = minxColors(g)
         val moving = BooleanArray(g.stickers.size) { frame.turning && g.layer(it, frame.turnAxis) == frame.turnLayer }
         System.arraycopy(frame.model, 0, base, 0, 16)
         val turned = FloatArray(16).also { Matrix.multiplyMM(it, 0, frame.model, 0, layerRot, 0) }
@@ -309,7 +322,8 @@ class CubeRenderer(private val session: CubeSession) : GLSurfaceView.Renderer {
         meshes.body.bind(aPos, aNormal)
         glDisable(GL_CULL_FACE)
         if (frame.turning && !g.kites) {
-            val (lo, hi) = slabs.getOrPut(g.n * 10_000L + frame.turnAxis * 100L + frame.turnLayer) { g.slab(frame.turnAxis, frame.turnLayer) }
+            val key = g.solid.ordinal * 1_000_000L + g.n * 10_000L + frame.turnAxis * 100L + frame.turnLayer
+            val (lo, hi) = slabs.getOrPut(key) { g.slab(frame.turnAxis, frame.turnLayer) }
             glUniform3f(uClipN, frame.turnVec[0], frame.turnVec[1], frame.turnVec[2])
             glUniform2f(uClip, lo.toFloat(), hi.toFloat())
             glUniform1f(uClipMode, -1f)
@@ -341,7 +355,7 @@ class CubeRenderer(private val session: CubeSession) : GLSurfaceView.Renderer {
             setMatrices()
             for (i in g.stickers.indices) {
                 if (moving[i] != (pass == 1)) continue
-                val col = MinxColors[minx.color(i)]
+                val col = colors[minx.color(i)]
                 glUniform3f(uColor, col[0], col[1], col[2])
                 glDrawArrays(GL_TRIANGLE_FAN, meshes.first[i], meshes.count[i])
             }
@@ -401,7 +415,7 @@ class CubeRenderer(private val session: CubeSession) : GLSurfaceView.Renderer {
         var first = 0
         for (i in g.stickers.indices) {
             if (!moving[i]) continue
-            val col = MinxColors[minx.color(i)]
+            val col = minxColors(g)[minx.color(i)]
             glUniform3f(uColor, col[0], col[1], col[2])
             glDrawArrays(GL_TRIANGLE_FAN, first, meshes.count[i])
             first += meshes.count[i]
@@ -433,7 +447,7 @@ class CubeRenderer(private val session: CubeSession) : GLSurfaceView.Renderer {
         glUniformMatrix4fv(uModelView, 1, false, mv, 0)
     }
 
-    /** The dodecahedron and every sticker, inset and lifted off its face, in one buffer. */
+    /** The solid and every sticker, inset and lifted off its face, in one buffer. */
     private class MinxMeshes(
         val body: Mesh,
         val stickers: Mesh,
@@ -458,7 +472,8 @@ class CubeRenderer(private val session: CubeSession) : GLSurfaceView.Renderer {
                 val data = ArrayList<Float>()
                 val first = IntArray(g.stickers.size)
                 val count = IntArray(g.stickers.size)
-                val margin = 0.055 / g.n
+                // Gaps grow with the solid's edge (about 0.9 on a megaminx), but slower.
+                val margin = 0.055 / g.n * maxOf(1.0, g.edge / 1.8)
                 for ((i, st) in g.stickers.withIndex()) {
                     val n = g.normals[st.face]
                     val poly = inset(st.polygon, n, st.centroid, margin)

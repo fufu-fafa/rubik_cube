@@ -43,13 +43,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.classic.cube.core.Puzzle
-import com.classic.cube.gl.MinxColors
+import com.classic.cube.core.Solid
+import com.classic.cube.gl.minxColors
 import com.classic.cube.data.SizeStats
 import com.classic.cube.game.GameViewModel
 import com.classic.cube.ui.theme.AppIcons
 import com.classic.cube.ui.theme.LocalKeys
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.sin
 
 @Composable
 fun MenuScreen(
@@ -91,6 +94,13 @@ fun MenuScreen(
         // Layers per face, like the classic sizes; the full name shows once one is picked.
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             for (p in Puzzle.MINX_FAMILY) {
+                Chip("${p.n}", p == puzzle, Modifier.size(40.dp)) { vm.setMenuPuzzle(p) }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        SectionLabel("Pyraminx")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (p in Puzzle.PYRAMINX_FAMILY) {
                 Chip("${p.n}", p == puzzle, Modifier.size(40.dp)) { vm.setMenuPuzzle(p) }
             }
         }
@@ -145,7 +155,7 @@ fun MenuScreen(
             text = {
                 Text(
                     "Make every face one color. A mirror cube is one color all over: bring it back to a cube shape.\n\n" +
-                        "• A megaminx turns in fifths. Swipe along the way you want the stickers to move; the closest turn wins.\n" +
+                        "• A megaminx turns in fifths and a pyraminx in thirds. Swipe along the way you want the stickers to move; the closest turn wins.\n" +
                         "• Swipe across the cube to turn a layer. Let go and it snaps to the nearest quarter turn.\n" +
                         "• Drag outside the cube, or with two fingers, to look around it. Twist two fingers to spin it in place.\n" +
                         "• The clock starts with your first turn after the scramble.\n" +
@@ -209,13 +219,21 @@ private fun Stat(label: String, value: String) {
 @Composable
 fun MinxPicture(puzzle: Puzzle, modifier: Modifier = Modifier) {
     val g = puzzle.minx
+    val colors = minxColors(g)
     Canvas(modifier) {
-        // The silhouette from above reaches out to the upper ring's outer corners.
-        val reach = g.faces.flatten().filter { it[1] > 0 }.maxOf { hypot(it[0], it[2]) }
+        // The silhouette from above reaches out to the farthest corner of a face in view.
+        val outline = g.faces.indices.filter { g.normals[it][1] > 0 }
+        val reach = outline.flatMap { g.faces[it] }.maxOf { hypot(it[0], it[2]) }
         val scale = size.minDimension / 2 / reach.toFloat() * 0.97f
         val c = Offset(size.width / 2, size.height / 2)
-        fun at(p: DoubleArray) = c + Offset(p[0].toFloat(), p[2].toFloat()) * scale
-        val outline = g.faces.indices.filter { g.normals[it][1] > 0 }
+        // A pyraminx is spun so a corner points straight up.
+        val spin = if (g.solid != Solid.TETRAHEDRON) 0.0 else {
+            val top = outline.flatMap { g.faces[it] }.filter { hypot(it[0], it[2]) > reach - 1e-6 }.minBy { it[2] }
+            -atan2(top[0], -top[2])
+        }
+        val cs = cos(spin)
+        val sn = sin(spin)
+        fun at(p: DoubleArray) = c + Offset((p[0] * cs - p[2] * sn).toFloat(), (p[0] * sn + p[2] * cs).toFloat()) * scale
         for (f in outline) {
             val pts = g.faces[f].map(::at)
             drawPath(Path().apply {
@@ -226,7 +244,7 @@ fun MinxPicture(puzzle: Puzzle, modifier: Modifier = Modifier) {
         }
         for (st in g.stickers) {
             if (g.normals[st.face][1] <= 0) continue
-            val col = MinxColors[st.face]
+            val col = colors[st.face]
             val pts = st.polygon.map { v -> at(DoubleArray(3) { st.centroid[it] + (v[it] - st.centroid[it]) * 0.86 }) }
             drawPath(Path().apply {
                 moveTo(pts[0].x, pts[0].y)

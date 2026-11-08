@@ -1,4 +1,4 @@
-# Cube 3D
+# Rubik 3D
 
 A 3D twisty-puzzle game for Android, drawn with OpenGL ES 2.0: classic cubes from 2×2 up to 7×7,
 the megaminx family (Kilominx, Megaminx, Master Kilominx, Gigaminx, Elite Kilominx, Teraminx), the pyraminx family

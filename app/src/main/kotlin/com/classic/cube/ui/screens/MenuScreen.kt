@@ -102,7 +102,7 @@ fun MenuScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Cube 3D", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colors.onSurfaceVariant)
+                Text("Rubik 3D", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colors.onSurfaceVariant)
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = { helpOpen = true }, modifier = Modifier.offset(x = 10.dp)) {
                     Icon(AppIcons.Help, "How to play", tint = colors.primary)
